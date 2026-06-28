@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Car Dash Game</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at top, #263a66, #070914 70%);
+      font-family: Arial, sans-serif;
+      color: white;
+      overflow: hidden;
+    }
+    .wrap { text-align: center; }
+    h1 { margin: 0 0 10px; letter-spacing: 1px; }
+    #game {
+      width: 420px;
+      max-width: 95vw;
+      height: 640px;
+      max-height: 82vh;
+      background: #20242b;
+      border: 6px solid #111827;
+      border-radius: 18px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.55);
+      display: block;
+      touch-action: none;
+    }
+    .help {
+      margin-top: 10px;
+      color: #cbd5e1;
+      font-size: 14px;
+    }
+    button {
+      margin-top: 10px;
+      padding: 10px 18px;
+      border: 0;
+      border-radius: 999px;
+      background: #38bdf8;
+      color: #06101f;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover { background: #7dd3fc; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🏎️ Car Dash</h1>
+    <canvas id="game" width="420" height="640"></canvas>
+    <div class="help">Move: ← → or A/D • Mobile: drag/tap sides • Avoid cars!</div>
+    <button onclick="restartGame()">Restart</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    const W = canvas.width;
+    const H = canvas.height;
+    const road = { x: 70, w: 280 };
+
+    let keys = {};
+    let gameOver = false;
+    let score = 0;
+    let best = Number(localStorage.getItem('carDashBest') || 0);
+    let speed = 4;
+    let laneMarkY = 0;
+    let spawnTimer = 0;
+
+    const player = {
+      x: W / 2 - 22,
+      y: H - 105,
+      w: 44,
+      h: 76,
+      color: '#22c55e'
+    };
+
+    let enemies = [];
+
+    function restartGame() {
+      gameOver = false;
+      score = 0;
+      speed = 4;
+      spawnTimer = 0;
+      laneMarkY = 0;
+      player.x = W / 2 - 22;
+      enemies = [];
+      requestAnimationFrame(loop);
+    }
+
+    function drawCar(car, isPlayer=false) {
+      ctx.save();
+      ctx.translate(car.x, car.y);
+      ctx.fillStyle = car.color;
+      roundRect(0, 0, car.w, car.h, 10);
+      ctx.fill();
+
+      ctx.fillStyle = isPlayer ? '#bbf7d0' : '#fecaca';
+      roundRect(8, 10, car.w - 16, 18, 5);
+      ctx.fill();
+      roundRect(8, car.h - 28, car.w - 16, 16, 5);
+      ctx.fill();
+
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(-5, 13, 8, 18);
+      ctx.fillRect(car.w - 3, 13, 8, 18);
+      ctx.fillRect(-5, car.h - 31, 8, 18);
+      ctx.fillRect(car.w - 3, car.h - 31, 8, 18);
+
+      ctx.fillStyle = '#f8fafc';
+      if (isPlayer) {
+        ctx.fillRect(7, 4, 10, 4);
+        ctx.fillRect(car.w - 17, 4, 10, 4);
+      } else {
+        ctx.fillRect(7, car.h - 8, 10, 4);
+        ctx.fillRect(car.w - 17, car.h - 8, 10, 4);
+      }
+      ctx.restore();
+    }
+
+    function roundRect(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x+r, y);
+      ctx.arcTo(x+w, y, x+w, y+h, r);
+      ctx.arcTo(x+w, y+h, x, y+h, r);
+      ctx.arcTo(x, y+h, x, y, r);
+      ctx.arcTo(x, y, x+w, y, r);
+      ctx.closePath();
+    }
+
+    function drawRoad() {
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle = '#374151';
+      ctx.fillRect(road.x, 0, road.w, H);
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(road.x - 8, 0, 8, H);
+      ctx.fillRect(road.x + road.w, 0, 8, H);
+
+      ctx.strokeStyle = '#e5e7eb';
+      ctx.lineWidth = 6;
+      ctx.setLineDash([38, 32]);
+      ctx.lineDashOffset = -laneMarkY;
+      ctx.beginPath();
+      ctx.moveTo(W / 2, 0);
+      ctx.lineTo(W / 2, H);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#14532d';
+      ctx.fillRect(0, 0, road.x - 8, H);
+      ctx.fillRect(road.x + road.w + 8, 0, W - (road.x + road.w + 8), H);
+    }
+
+    function drawUI() {
+      ctx.fillStyle = 'rgba(0,0,0,.35)';
+      roundRect(12, 12, 150, 70, 12);
+      ctx.fill();
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 22px Arial';
+      ctx.fillText('Score: ' + Math.floor(score), 25, 40);
+      ctx.font = '15px Arial';
+      ctx.fillText('Best: ' + best, 25, 64);
+    }
+
+    function spawnEnemy() {
+      const lanes = [road.x + 25, road.x + 118, road.x + 211];
+      const colors = ['#ef4444', '#f97316', '#a855f7', '#06b6d4', '#eab308'];
+      enemies.push({
+        x: lanes[Math.floor(Math.random() * lanes.length)],
+        y: -90,
+        w: 44,
+        h: 76,
+        color: colors[Math.floor(Math.random() * colors.length)]
+      });
+    }
+
+    function intersects(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function update() {
+      if (gameOver) return;
+
+      if (keys.ArrowLeft || keys.a || keys.A) player.x -= 6.5;
+      if (keys.ArrowRight || keys.d || keys.D) player.x += 6.5;
+      player.x = Math.max(road.x + 8, Math.min(road.x + road.w - player.w - 8, player.x));
+
+      speed = 4 + score / 650;
+      score += 0.12 * speed;
+      laneMarkY = (laneMarkY + speed) % 70;
+      spawnTimer += 1;
+      if (spawnTimer > Math.max(28, 80 - speed * 5)) {
+        spawnEnemy();
+        spawnTimer = 0;
+      }
+
+      enemies.forEach(e => e.y += speed + 1.5);
+      enemies = enemies.filter(e => e.y < H + 100);
+
+      for (const e of enemies) {
+        if (intersects(player, e)) {
+          gameOver = true;
+          best = Math.max(best, Math.floor(score));
+          localStorage.setItem('carDashBest', best);
+        }
+      }
+    }
+
+    function drawGameOver() {
+      ctx.fillStyle = 'rgba(0,0,0,.65)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = 'white';
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 42px Arial';
+      ctx.fillText('GAME OVER', W / 2, H / 2 - 45);
+      ctx.font = '22px Arial';
+      ctx.fillText('Score: ' + Math.floor(score), W / 2, H / 2);
+      ctx.fillText('Best: ' + best, W / 2, H / 2 + 34);
+      ctx.font = '16px Arial';
+      ctx.fillText('Press Enter or tap Restart', W / 2, H / 2 + 75);
+      ctx.textAlign = 'left';
+    }
+
+    function loop() {
+      update();
+      drawRoad();
+      enemies.forEach(e => drawCar(e));
+      drawCar(player, true);
+      drawUI();
+      if (gameOver) drawGameOver();
+      else requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('keydown', e => {
+      keys[e.key] = true;
+      if (gameOver && e.key === 'Enter') restartGame();
+    });
+    window.addEventListener('keyup', e => keys[e.key] = false);
+
+    function pointerMove(e) {
+      const rect = canvas.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const x = (clientX - rect.left) / rect.width * W;
+      player.x = Math.max(road.x + 8, Math.min(road.x + road.w - player.w - 8, x - player.w / 2));
+    }
+    canvas.addEventListener('mousemove', e => { if (e.buttons) pointerMove(e); });
+    canvas.addEventListener('touchmove', e => { e.preventDefault(); pointerMove(e); }, { passive: false });
+    canvas.addEventListener('touchstart', pointerMove);
+
+    restartGame();
+  </script>
+</body>
+</html>
